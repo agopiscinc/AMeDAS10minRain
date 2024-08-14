@@ -167,4 +167,4 @@ if st.button("データ取得"):
     st.dataframe(df)
     # 必要に応じてCSVとしてダウンロードするオプションを追加
     csv = df.to_csv(index=False)
-    st.download_button(label="CSVをダウンロード", data=csv, file_name='weather_data.csv', mime='text/csv')
+    st.download_button(label="CSVをダウンロード", data=csv, file_name=f'{place}_weather_data_{start_date}_{end_date}.csv', mime='text/csv')
