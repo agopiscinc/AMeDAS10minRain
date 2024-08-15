@@ -5,6 +5,8 @@ import numpy as np
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse, parse_qs
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 # CSVファイルの読み込み
 no_df = pd.read_csv('kisyotyo_precno_blockno.csv', dtype='object')
@@ -16,7 +18,7 @@ st.title("気象データ取得アプリ")
 place = st.text_input("観測地点名", "東京")
 start_date = st.date_input("開始日", pd.to_datetime('2024-08-01'))
 end_date = st.date_input("終了日", pd.to_datetime('2024-08-02'))
-calculate_soil_water_index = st.checkbox("土壌雨量指数の計算")
+calculate_soil_water_index = st.checkbox("土壌雨量指数の計算", value=True)
 
 
 kishodai_list = ['札幌','仙台','東京','大阪','福岡','沖縄',# 管区気象台
@@ -185,4 +187,81 @@ if st.button("データ取得"):
     st.dataframe(df)
     # 必要に応じてCSVとしてダウンロードするオプションを追加
     csv = df.to_csv()
-    st.download_button(label="CSVをダウンロード", data=csv, file_name=f'{place}_weather_data_{start_date}_{end_date}.csv', mime='text/csv')
+    st.download_button(label="CSVをダウンロード", data=csv, file_name=f'weather_data_{place}_{start_date}_{end_date}.csv', mime='text/csv')
+
+
+
+
+    # 結果の描画
+    # 10 min Precipitation and Cumulative Rainfall
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+    
+    fig.add_trace(go.Bar(x=df.index, y=df['降水量(mm)'], name='Precipitation',), secondary_y=False)    
+    fig.add_trace(go.Scatter(x=df.index, y=df['降水量(mm)'].cumsum(), name='Cumulative Rainfall', mode='lines', line=dict(color='red')), secondary_y=True)
+    
+    fig.update_layout(
+        title='10 min Precipitation and Cumulative Rainfall',
+        xaxis_title='Date',
+        yaxis_title='Precipitation [mm/10min]',
+        yaxis2=dict(
+            title='Cumulative Rainfall [mm]',
+            overlaying='y',
+            side='right',
+            range=[0, df['降水量(mm)'].cumsum().max()*1.05], 
+            showgrid=False
+        ),
+        legend=dict(x=0.01, y=1.0)
+    )
+
+    st.plotly_chart(fig)
+
+
+    # 1 hour Precipitation and SWI
+    if calculate_soil_water_index:
+        df_plt = df.select_dtypes('number').resample('h').sum()
+        fig = make_subplots(specs=[[{"secondary_y": True}]])
+        fig.add_trace(go.Bar(x=df_plt.index, y=df_plt['降水量(mm)'], name='Precipitation',), secondary_y=False)
+        fig.add_trace(go.Scatter(x=df.index, y=df['土壌雨量指数'], name='Soil Water Index',), secondary_y=True)
+        
+        fig.update_layout(
+            title='1 hour Precipitation and Soil Water Index',
+            xaxis_title='Date',
+            yaxis_title='Precipitation [mm/hour]',
+            yaxis2=dict(
+                title='Soil Water Index',
+                overlaying='y',
+                side='right',
+                range=[0, df['土壌雨量指数'].max()*1.05], 
+                showgrid=False
+            ),
+            legend=dict(x=0.01, y=1.0)
+        )
+        st.plotly_chart(fig)
+
+
+    # snake line
+        df_plt = df.copy()
+        df_plt['60分間積算雨量'] = df_plt['降水量(mm)'].rolling(6).sum()
+        
+        fig = go.Figure()
+        
+        fig.add_trace(go.Scatter(x=df_plt['土壌雨量指数'], y=df_plt['60分間積算雨量'], name='Soil Water Index', mode = 'lines+markers',
+                                hovertemplate='土壌雨量指数: %{x}<br>60分間積算雨量: %{y} mm<br>%{customdata}<extra></extra>', customdata=df_plt.index))
+        
+        fig.update_layout(
+            title='Snake lines',
+            xaxis=dict(
+                title='土壌雨量指数',
+                range=[0,max(400,df_plt['土壌雨量指数'].max()*1.05)],       
+            ),
+            yaxis=dict(
+                title='60分間積算雨量 [mm/60min]',
+                range=[0,max(100,df_plt['60分間積算雨量'].max()*1.05)]
+            ),
+            legend=dict(x=0.01, y=1.0)
+        )
+        fig.update_layout(margin=dict(l=1, r=1, b=1, t=30), height = 600)
+        st.plotly_chart(fig, use_container_width=True)
+
+        
+
