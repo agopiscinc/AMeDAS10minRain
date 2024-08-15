@@ -7,18 +7,24 @@ from bs4 import BeautifulSoup
 from urllib.parse import urlparse, parse_qs
 
 # CSVファイルの読み込み
-no_df = pd.read_csv('kisyotyo_precno_blockno.csv')
+no_df = pd.read_csv('kisyotyo_precno_blockno.csv', dtype='object')
 
 # Streamlitアプリのタイトル
 st.title("気象データ取得アプリ")
 
 # ユーザー入力
-place = st.text_input("観測地点名", "所沢")
+place = st.text_input("観測地点名", "東京")
 start_date = st.date_input("開始日", pd.to_datetime('2024-08-01'))
-end_date = st.date_input("終了日", pd.to_datetime('2024-08-03'))
+end_date = st.date_input("終了日", pd.to_datetime('2024-08-02'))
 calculate_soil_water_index = st.checkbox("土壌雨量指数の計算")
 
 
+kishodai_list = ['札幌','仙台','東京','大阪','福岡','沖縄',# 管区気象台
+                 '函館','旭川','室蘭','釧路','網走','稚内','青森','盛岡','秋田','山形','福島',# 地方気象台
+                 '水戸','宇都宮','前橋','熊谷','銚子','横浜','新潟','富山','金沢','福井','甲府','長野','岐阜','静岡','名古屋','津',
+                 '神戸','彦根','京都','奈良','和歌山','鳥取','松江','岡山','広島','徳島','高松','松山','高知',
+                 '長崎','下関','佐賀','熊本','大分','宮崎','鹿児島','宮古島','石垣島','南大東島'
+                ]
 
 
 
@@ -100,8 +106,8 @@ def SWI_make(rains, raindata_dt=10):
 if st.button("データ取得"):
     # 観測地点の情報取得
     try:
-        prec_no = int(no_df[no_df['place'] == place]['prec_no'].values[0])
-        block_no = int(no_df[no_df['place'] == place]['block_no'].values[0])
+        prec_no = no_df[no_df['place'] == place]['prec_no'].values[0]
+        block_no = no_df[no_df['place'] == place]['block_no'].values[0]
     except IndexError:
         st.error("観測地点名が見つかりません。正しい観測地点名を入力してください。")
         st.stop()
@@ -109,11 +115,25 @@ if st.button("データ取得"):
     # 期間レンジ
     date_range = pd.date_range(start_date, end_date, freq='D')
 
+
+    
+
     df = pd.DataFrame()
 
     for date in date_range:
         st.write(f"データ取得中: {date}")
-        url = f"https://www.data.jma.go.jp/stats/etrn/view/10min_a1.php?prec_no={prec_no}&block_no={block_no}&year={date.year}&month={date.month}&day={date.day}&view="
+        
+        if place in kishodai_list:
+            observatory_type = 's'
+            header = ['時分','気圧(hPa)_現地', '気圧(hPa)_海面', '降水量(mm)', '気温(℃)', '相対湿度(％)', '風向・風速_平均_風速(m/s)', '風向・風速_平均_風向', 
+                      '風向・風速_最大瞬間_風速(m/s)', '風向・風速_最大瞬間_風向', '日照時間(min)']
+        else:
+            observatory_type = 'a'
+            header = ['時分', '降水量(mm)', '気温(℃)', '相対湿度(％)', '風向・風速_平均_風速(m/s)', '風向・風速_平均_風向', 
+                      '風向・風速_最大瞬間_風速(m/s)', '風向・風速_最大瞬間_風向', '日照時間(min)']
+
+        url = f"https://www.data.jma.go.jp/obd/stats/etrn/view/10min_{observatory_type}1.php?prec_no={prec_no}&block_no={block_no}&year={date.year}&month={date.month}&day={date.day}&view="
+
         
         # ウェブページの取得
         response = requests.get(url)
@@ -129,8 +149,6 @@ if st.button("データ取得"):
             st.error(f"{date} のデータが見つかりませんでした。")
             continue
 
-        header = ['時分', '降水量(mm)', '気温(℃)', '相対湿度(％)', '風向・風速_平均_風速(m/s)', '風向・風速_平均_風向', 
-                  '風向・風速_最大瞬間_風速(m/s)', '風向・風速_最大瞬間_風向', '日照時間(min)']
         
         # テーブルの行を抽出
         rows = []
