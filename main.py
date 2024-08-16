@@ -9,24 +9,26 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 # CSVファイルの読み込み
-no_df = pd.read_csv('kisyotyo_precno_blockno.csv', dtype='object')
+kisho_df = pd.read_csv('kisyotyo_prec_block.csv', dtype='object')
 
 # Streamlitアプリのタイトル
-st.title("気象データ取得アプリ")
+st.title("10分間隔気象データ取得アプリ")
 
 # ユーザー入力
-place = st.text_input("観測地点名", "東京")
+
+# デフォルト値の設定
+default_prec = "東京都"
+
+# 都道府県のセレクトボックスを表示
+selected_prefecture = st.selectbox("都府県・地方を選択してください", kisho_df["prec_name"].unique(), index=kisho_df["prec_name"].unique().tolist().index(default_prec))
+
+# 選択された都道府県に基づいて都市名のセレクトボックスを表示
+selected_block = st.selectbox("観測所を選択してください", kisho_df[kisho_df["prec_name"] == selected_prefecture]["block_name"], index=min(4, len(kisho_df[kisho_df["prec_name"]==selected_prefecture])-1))
+
+# place = st.text_input("観測地点名", "東京")
 start_date = st.date_input("開始日", pd.to_datetime('2024-08-01'))
 end_date = st.date_input("終了日", pd.to_datetime('2024-08-02'))
 calculate_soil_water_index = st.checkbox("土壌雨量指数の計算", value=True)
-
-
-kishodai_list = ['札幌','仙台','東京','大阪','福岡','沖縄',# 管区気象台
-                 '函館','旭川','室蘭','釧路','網走','稚内','青森','盛岡','秋田','山形','福島',# 地方気象台
-                 '水戸','宇都宮','前橋','熊谷','銚子','横浜','新潟','富山','金沢','福井','甲府','長野','岐阜','静岡','名古屋','津',
-                 '神戸','彦根','京都','奈良','和歌山','鳥取','松江','岡山','広島','徳島','高松','松山','高知',
-                 '長崎','下関','佐賀','熊本','大分','宮崎','鹿児島','宮古島','石垣島','南大東島'
-                ]
 
 
 
@@ -71,7 +73,6 @@ def SWI_make(rains, raindata_dt=10):
             swi_S3[i] = (1-swi_b3*swi_dt)*swi_S3[i-1] - swi_q3*swi_dt + swi_b2*swi_S2[i-1]*swi_dt
             if(swi_S3[i]<0):
                 swi_S3[i]=0.0
-      
 
         if(swi_S2[i-1]>swi_L3):
             swi_q2 = swi_a3*(swi_S2[i-1]-swi_L3)
@@ -104,15 +105,23 @@ def SWI_make(rains, raindata_dt=10):
     return SWI
 
 
+
+
 # ボタンをクリックするとデータを取得
 if st.button("データ取得"):
     # 観測地点の情報取得
-    try:
-        prec_no = no_df[no_df['place'] == place]['prec_no'].values[0]
-        block_no = no_df[no_df['place'] == place]['block_no'].values[0]
-    except IndexError:
-        st.error("観測地点名が見つかりません。正しい観測地点名を入力してください。")
-        st.stop()
+    kisho_df_ = kisho_df[kisho_df["prec_name"] == selected_prefecture]
+    kisho_df_ = kisho_df_[kisho_df_["block_name"] == selected_block]
+    prec_no = kisho_df_['prec_no'].values[0]
+    block_no = kisho_df_['block_no'].values[0]
+    ob_type = kisho_df_['ob_type'].values[0]
+    
+    # try:
+    #     prec_no = no_df[no_df['place'] == place]['prec_no'].values[0]
+    #     block_no = no_df[no_df['place'] == place]['block_no'].values[0]
+    # except IndexError:
+    #     st.error("観測地点名が見つかりません。正しい観測地点名を入力してください。")
+    #     st.stop()
 
     # 期間レンジ
     date_range = pd.date_range(start_date, end_date, freq='D')
@@ -125,16 +134,14 @@ if st.button("データ取得"):
     for date in date_range:
         st.write(f"データ取得中: {date}")
         
-        if place in kishodai_list:
-            observatory_type = 's'
+        if ob_type == 's':
             header = ['時分','気圧(hPa)_現地', '気圧(hPa)_海面', '降水量(mm)', '気温(℃)', '相対湿度(％)', '風向・風速_平均_風速(m/s)', '風向・風速_平均_風向', 
                       '風向・風速_最大瞬間_風速(m/s)', '風向・風速_最大瞬間_風向', '日照時間(min)']
         else:
-            observatory_type = 'a'
             header = ['時分', '降水量(mm)', '気温(℃)', '相対湿度(％)', '風向・風速_平均_風速(m/s)', '風向・風速_平均_風向', 
                       '風向・風速_最大瞬間_風速(m/s)', '風向・風速_最大瞬間_風向', '日照時間(min)']
 
-        url = f"https://www.data.jma.go.jp/obd/stats/etrn/view/10min_{observatory_type}1.php?prec_no={prec_no}&block_no={block_no}&year={date.year}&month={date.month}&day={date.day}&view="
+        url = f"https://www.data.jma.go.jp/obd/stats/etrn/view/10min_{ob_type}1.php?prec_no={prec_no}&block_no={block_no}&year={date.year}&month={date.month}&day={date.day}&view="
 
         
         # ウェブページの取得
@@ -187,7 +194,7 @@ if st.button("データ取得"):
     st.dataframe(df)
     # 必要に応じてCSVとしてダウンロードするオプションを追加
     csv = df.to_csv()
-    st.download_button(label="CSVをダウンロード", data=csv, file_name=f'weather_data_{place}_{start_date}_{end_date}.csv', mime='text/csv')
+    st.download_button(label="CSVをダウンロード", data=csv, file_name=f'weather_data_{selected_block}_{start_date}_{end_date}.csv', mime='text/csv')
 
 
 
