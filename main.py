@@ -14,11 +14,14 @@ kisho_df = pd.read_csv('kisyotyo_prec_block.csv', dtype='object')
 # Streamlitアプリのタイトル
 st.title("10分間隔気象データ取得アプリ")
 
-# ユーザー入力
+# 初期化時、セッションステートにデータフレームを保存
+if "dataframe" not in st.session_state:
+    st.session_state.dataframe = None
 
 # デフォルト値の設定
 default_prec = "東京都"
 
+# ユーザー入力
 # 都道府県のセレクトボックスを表示
 selected_prefecture = st.selectbox("都府県・地方を選択してください", kisho_df["prec_name"].unique(), index=kisho_df["prec_name"].unique().tolist().index(default_prec))
 
@@ -29,7 +32,6 @@ selected_block = st.selectbox("観測所を選択してください", kisho_df[k
 start_date = st.date_input("開始日", pd.to_datetime('2024-08-01'))
 end_date = st.date_input("終了日", pd.to_datetime('2024-08-02'))
 calculate_soil_water_index = st.checkbox("土壌雨量指数の計算", value=True)
-
 
 
 def SWI_make(rains, raindata_dt=10):
@@ -105,8 +107,6 @@ def SWI_make(rains, raindata_dt=10):
     return SWI
 
 
-
-
 # ボタンをクリックするとデータを取得
 if st.button("データ取得"):
     # 観測地点の情報取得
@@ -126,24 +126,22 @@ if st.button("データ取得"):
     # 期間レンジ
     date_range = pd.date_range(start_date, end_date, freq='D')
 
-
-    
-
     df = pd.DataFrame()
 
+    if ob_type == 's':
+        ini_row = 2
+        header = ['時分','気圧(hPa)_現地', '気圧(hPa)_海面', '降水量(mm)', '気温(℃)', '相対湿度(％)', '風向・風速_平均_風速(m/s)', '風向・風速_平均_風向', 
+                  '風向・風速_最大瞬間_風速(m/s)', '風向・風速_最大瞬間_風向', '日照時間(min)']
+    else:
+        ini_row = 3
+        header = ['時分', '降水量(mm)', '気温(℃)', '相対湿度(％)', '風向・風速_平均_風速(m/s)', '風向・風速_平均_風向', 
+                  '風向・風速_最大瞬間_風速(m/s)', '風向・風速_最大瞬間_風向', '日照時間(min)']
+    
     for date in date_range:
         st.write(f"データ取得中: {date}")
         
-        if ob_type == 's':
-            header = ['時分','気圧(hPa)_現地', '気圧(hPa)_海面', '降水量(mm)', '気温(℃)', '相対湿度(％)', '風向・風速_平均_風速(m/s)', '風向・風速_平均_風向', 
-                      '風向・風速_最大瞬間_風速(m/s)', '風向・風速_最大瞬間_風向', '日照時間(min)']
-        else:
-            header = ['時分', '降水量(mm)', '気温(℃)', '相対湿度(％)', '風向・風速_平均_風速(m/s)', '風向・風速_平均_風向', 
-                      '風向・風速_最大瞬間_風速(m/s)', '風向・風速_最大瞬間_風向', '日照時間(min)']
-
         url = f"https://www.data.jma.go.jp/obd/stats/etrn/view/10min_{ob_type}1.php?prec_no={prec_no}&block_no={block_no}&year={date.year}&month={date.month}&day={date.day}&view="
 
-        
         # ウェブページの取得
         response = requests.get(url)
         response.encoding = response.apparent_encoding  # Handle Japanese characters
@@ -158,10 +156,9 @@ if st.button("データ取得"):
             st.error(f"{date} のデータが見つかりませんでした。")
             continue
 
-        
         # テーブルの行を抽出
         rows = []
-        for tr in table.find_all('tr')[3:]:
+        for tr in table.find_all('tr')[ini_row:]:
             cells = tr.find_all(['td', 'th'])
             row = [cell.text.strip() for cell in cells]
             rows.append(row)
@@ -169,8 +166,10 @@ if st.button("データ取得"):
         # DataFrameの作成
         df_ = pd.DataFrame(rows, columns=header)
         df_['日付'] = date
-
         df = pd.concat([df, df_])
+        
+        # スクレイピング速度制限
+        # time.sleep(1)
 
     # 降雨データは日付境界を前の日の24:00:00と表記しているため修正
     idx = df[df['時分']=='24:00'].index
@@ -188,19 +187,27 @@ if st.button("データ取得"):
         df['降水量(mm)'] = pd.to_numeric(df['降水量(mm)'], errors='coerce').fillna(0)
         raindata_dt = 10 #[min]
         df['土壌雨量指数'] = SWI_make(df['降水量(mm)'].to_numpy(), raindata_dt)
+
+    # データフレームをsession_stateに保存
+    st.session_state.dataframe = df
     
+
+if st.session_state.dataframe is not None:
+    df = st.session_state.dataframe
+
     # 結果の表示
     st.write("取得したデータ:")
     st.dataframe(df)
+    
     # 必要に応じてCSVとしてダウンロードするオプションを追加
-    csv = df.to_csv()
+    selected_encode = st.radio("CSVのencoding選択", ['utf-8', 'shift-JIS'])
+    csv = df.to_csv().encode(selected_encode)
     st.download_button(label="CSVをダウンロード", data=csv, file_name=f'weather_data_{selected_block}_{start_date}_{end_date}.csv', mime='text/csv')
-
-
 
 
     # 結果の描画
     # 10 min Precipitation and Cumulative Rainfall
+    df['降水量(mm)'] = pd.to_numeric(df['降水量(mm)'], errors='coerce').fillna(0)
     fig = make_subplots(specs=[[{"secondary_y": True}]])
     
     fig.add_trace(go.Bar(x=df.index, y=df['降水量(mm)'], name='Precipitation',), secondary_y=False)    
@@ -219,7 +226,6 @@ if st.button("データ取得"):
         ),
         legend=dict(x=0.01, y=1.0)
     )
-
     st.plotly_chart(fig)
 
 
@@ -251,7 +257,6 @@ if st.button("データ取得"):
         df_plt['60分間積算雨量'] = df_plt['降水量(mm)'].rolling(6).sum()
         
         fig = go.Figure()
-        
         fig.add_trace(go.Scatter(x=df_plt['土壌雨量指数'], y=df_plt['60分間積算雨量'], name='Soil Water Index', mode = 'lines+markers',
                                 hovertemplate='土壌雨量指数: %{x}<br>60分間積算雨量: %{y} mm<br>%{customdata}<extra></extra>', customdata=df_plt.index))
         
@@ -269,6 +274,3 @@ if st.button("データ取得"):
         )
         fig.update_layout(margin=dict(l=1, r=1, b=1, t=30), height = 600)
         st.plotly_chart(fig, use_container_width=True)
-
-        
-
