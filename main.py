@@ -1,5 +1,6 @@
 import streamlit as st
 import time
+import datetime
 import pandas as pd
 import numpy as np
 import requests
@@ -20,6 +21,8 @@ if "dataframe" not in st.session_state:
 
 # デフォルト値の設定
 default_prec = "東京都"
+default_start_date = datetime.date.today() - datetime.timedelta(days=2)
+default_end_date = datetime.date.today() - datetime.timedelta(days=1)
 
 # ユーザー入力
 # 都道府県のセレクトボックスを表示
@@ -29,8 +32,8 @@ selected_prefecture = st.selectbox("都府県・地方を選択してくださ�
 selected_block = st.selectbox("観測所を選択してください", kisho_df[kisho_df["prec_name"] == selected_prefecture]["block_name"], index=min(4, len(kisho_df[kisho_df["prec_name"]==selected_prefecture])-1))
 
 # place = st.text_input("観測地点名", "東京")
-start_date = st.date_input("開始日", pd.to_datetime('2024-08-01'))
-end_date = st.date_input("終了日", pd.to_datetime('2024-08-02'))
+start_date = st.date_input("開始日", pd.to_datetime(default_start_date))
+end_date = st.date_input("終了日", pd.to_datetime(default_end_date))
 calculate_soil_water_index = st.checkbox("土壌雨量指数の計算", value=True)
 
 
