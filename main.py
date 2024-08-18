@@ -34,7 +34,7 @@ selected_block = st.selectbox("観測所を選択してください", kisho_df[k
 # place = st.text_input("観測地点名", "東京")
 start_date = st.date_input("開始日", pd.to_datetime(default_start_date))
 end_date = st.date_input("終了日", pd.to_datetime(default_end_date))
-calculate_soil_water_index = st.checkbox("土壌雨量指数の計算", value=True)
+calculate_soil_water_index = st.checkbox("土壌雨量指数の計算（取得開始日を0として計算します）", value=True)
 
 
 def SWI_make(rains, raindata_dt=10):
@@ -118,7 +118,9 @@ if st.button("データ取得"):
     prec_no = kisho_df_['prec_no'].values[0]
     block_no = kisho_df_['block_no'].values[0]
     ob_type = kisho_df_['ob_type'].values[0]
-    
+
+    if end_date - start_date > datetime.timedelta(days=30):
+        st.write('slow mode...')
     # try:
     #     prec_no = no_df[no_df['place'] == place]['prec_no'].values[0]
     #     block_no = no_df[no_df['place'] == place]['block_no'].values[0]
@@ -172,7 +174,8 @@ if st.button("データ取得"):
         df = pd.concat([df, df_])
         
         # スクレイピング速度制限
-        # time.sleep(1)
+        if end_date - start_date > datetime.timedelta(days=30):
+            time.sleep(1)
 
     # 降雨データは日付境界を前の日の24:00:00と表記しているため修正
     idx = df[df['時分']=='24:00'].index
