@@ -13,7 +13,7 @@ from plotly.subplots import make_subplots
 kisho_df = pd.read_csv('kisyotyo_prec_block.csv', dtype='object')
 
 # Streamlitアプリのタイトル
-st.title("10分間隔気象データ取得アプリ")
+st.title("気象データ（10分間）取得アプリ")
 
 # 初期化時、セッションステートにデータフレームを保存
 if "dataframe" not in st.session_state:
@@ -24,17 +24,41 @@ default_prec = "東京都"
 default_start_date = datetime.date.today() - datetime.timedelta(days=2)
 default_end_date = datetime.date.today() - datetime.timedelta(days=1)
 
+# 今日
+dt_now = datetime.datetime.utcnow() + datetime.timedelta(hours=9) # 日本時刻に設定
+today = dt_now.date()
+yesterday = today - datetime.timedelta(days=1)
+
 # ユーザー入力
 # 都道府県のセレクトボックスを表示
 selected_prefecture = st.selectbox("都府県・地方を選択してください", kisho_df["prec_name"].unique(), index=kisho_df["prec_name"].unique().tolist().index(default_prec))
 
 # 選択された都道府県に基づいて都市名のセレクトボックスを表示
 selected_block = st.selectbox("観測所を選択してください", kisho_df[kisho_df["prec_name"] == selected_prefecture]["block_name"], index=min(4, len(kisho_df[kisho_df["prec_name"]==selected_prefecture])-1))
-
 # place = st.text_input("観測地点名", "東京")
-start_date = st.date_input("開始日", pd.to_datetime(default_start_date))
-end_date = st.date_input("終了日", pd.to_datetime(default_end_date))
+
+# 当日の観測データが取得不可の観測所は終了日を昨日に設定
+kisho_df_ = kisho_df[kisho_df["prec_name"] == selected_prefecture]
+kisho_df_ = kisho_df_[kisho_df_["block_name"] == selected_block]
+if kisho_df_['観測所番号'].isna().all():
+    st.write(f'この観測所は終了日に本日（{today}）を指定することはできません。')
+    end_max_value = yesterday
+else:
+    end_max_value = today
+    
+
+# 取得期間指定
+
+start_date = st.date_input("開始日", pd.to_datetime(default_start_date), max_value=yesterday)
+end_date = st.date_input("終了日", pd.to_datetime(default_end_date), min_value=start_date, max_value=end_max_value)
 calculate_soil_water_index = st.checkbox("土壌雨量指数の計算（取得開始日を0として計算します）", value=True)
+
+today_flag = False
+if end_date == today:
+    end_date = yesterday
+    today_flag = True
+
+# st.write(type(end_date))
 
 
 def SWI_make(rains, raindata_dt=10):
@@ -113,8 +137,8 @@ def SWI_make(rains, raindata_dt=10):
 # ボタンをクリックするとデータを取得
 if st.button("データ取得"):
     # 観測地点の情報取得
-    kisho_df_ = kisho_df[kisho_df["prec_name"] == selected_prefecture]
-    kisho_df_ = kisho_df_[kisho_df_["block_name"] == selected_block]
+    # kisho_df_ = kisho_df[kisho_df["prec_name"] == selected_prefecture]
+    # kisho_df_ = kisho_df_[kisho_df_["block_name"] == selected_block]
     prec_no = kisho_df_['prec_no'].values[0]
     block_no = kisho_df_['block_no'].values[0]
     ob_type = kisho_df_['ob_type'].values[0]
@@ -143,7 +167,7 @@ if st.button("データ取得"):
                   '風向・風速_最大瞬間_風速(m/s)', '風向・風速_最大瞬間_風向', '日照時間(min)']
     
     for date in date_range:
-        st.write(f"データ取得中: {date}")
+        st.write(f"データ取得中: {date.date()}")
         
         url = f"https://www.data.jma.go.jp/obd/stats/etrn/view/10min_{ob_type}1.php?prec_no={prec_no}&block_no={block_no}&year={date.year}&month={date.month}&day={date.day}&view="
 
@@ -187,6 +211,46 @@ if st.button("データ取得"):
     df.loc[idx, 'datetime'] = df.loc[idx, 'datetime'] + pd.to_timedelta(1, unit='D')
     df.set_index('datetime', inplace=True)
     df.drop(columns=['時分', '日付'], inplace=True)
+
+
+    if today_flag:
+        st.write(f"データ取得中: {today}")
+        gdate_str = today.strftime('%Y%m%d') 
+        gdate_int = int(gdate_str)
+        amedas_number = kisho_df_['観測所番号'].values[0]
+        divisionNumbers = ['00', '03', '06', '09', '12', '15', '18', '21']
+
+        weather_dfs = []
+        for dn in divisionNumbers:
+            try:
+                url = f'https://www.jma.go.jp/bosai/amedas/data/point/{amedas_number}/{gdate_int}_{dn}.json'
+                res = requests.get(url).json()
+                # weather_df = pd.read_json(str(res).replace("'", '"'), orient = 'index') # NaNが入っていると対応できないので，dictをdfにする方法に変更
+                weather_df = pd.DataFrame.from_dict(res, orient = 'index')
+                weather_df.index = pd.to_datetime([*res.keys()])
+                weather_dfs.append(weather_df)
+            except:
+                break        
+        
+        today_df = pd.concat(weather_dfs)
+        target_cols = ['temp', 'snow1h', 'snow6h', 'snow12h', 'snow24h', 'sun10m', 'sun1h','precipitation10m','precipitation1h', 'humidity', 
+                       'precipitation3h', 'precipitation24h', 'windDirection', 'wind', 'maxTemp','minTemp', 'gustDirection', 'gust']
+
+        # 品質情報がついているので消す
+        for col in target_cols:
+            try:
+                today_df[col] = today_df[col].dropna().apply(pd.Series)[0]
+            except:
+                continue
+
+        # wind direction
+        wd = { 1:"北北東", 2:"北東", 3:"東北東", 4:"東", 5:"東南東", 6:"南東", 7:"南南東", 8:"南", 9:"南南西", 10:"南西", 11:"西南西", 12:"西", 13:"西北西", 14:"北西", 15:"北北西", 16:"北" }
+        today_df['windDirection'].replace(wd, inplace=True)
+        
+        trans_dict = {'precipitation10m':'降水量(mm)', 'temp':'気温(℃)', 'humidity':'相対湿度(％)', #'風向・風速_平均_風速(m/s)', '風向・風速_平均_風向',
+                      'wind':'風向・風速_最大瞬間_風速(m/s)', 'windDirection':'風向・風速_最大瞬間_風向', 'sun10m':'日照時間(min)'}
+
+        df = pd.concat([df, today_df.rename(columns=trans_dict)], join='outer')[df.columns]
 
     if calculate_soil_water_index:
         # 土壌雨量指数の計算
